@@ -3,17 +3,21 @@ import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import User from "../models/User";
 import dotenv from "dotenv";
+import Session from "../models/Session";
 
 export async function LoginController(
   req: Request,
   res: Response
-): Promise<void> {
+): Promise<any> {
   const jwtSecret = process.env.JWT_SECRET;
+  const refreshSecret = process.env.REFRESH_TOKEN_SECRET;
+  const accessSecret = process.env.ACCESS_TOKEN_SECRET;
   try {
+    console.log(req);
     const { email, password } = req.body;
 
     if (!email || !password) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
         meaasge: "Please Enter full details",
       });
@@ -24,20 +28,51 @@ export async function LoginController(
     if (!userFromDb) {
       res.status(403).json({
         success: false,
-        message: "You are not authorized",
+        message: "Invalid user details",
+      });
+      return;
+    }
+
+    const checkPassword = await bcrypt.compare(password, userFromDb?.password);
+
+    if (!checkPassword) {
+      res.status(403).json({
+        success: false,
+        message: "Invalid user details",
       });
     }
 
     const userId = userFromDb?._id.toString();
-
     const payload = { userId };
 
-    const refreshToken = await jwt.sign(payload, jwtSecret, {
+    const refreshToken = await jwt.sign(payload, refreshSecret, {
       expiresIn: "7d",
     });
 
+    const accessToken = await jwt.sign(payload, accessSecret, {
+      expiresIn: "15m",
+    });
+
+    await Session.findOneAndUpdate(
+      { userId },
+      {
+        refreshToken,
+        sessionExpiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      },
+      {
+        new: true,
+        upsert: true,
+      }
+    );
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: "lax",
+    });
+
     res.status(200).json({
-      refreshToken,
+      success: true,
+      accessToken,
     });
   } catch (error) {
     console.log(error);
@@ -51,7 +86,7 @@ export async function LoginController(
 export const SignupController = async (
   req: Request,
   res: Response
-): Promise<void> => {
+): Promise<any> => {
   try {
     const { email, password } = req.body as { email: string; password: string };
 
