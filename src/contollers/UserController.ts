@@ -99,6 +99,15 @@ export const SignupController = async (
 
     const hashedPass = await bcrypt.hash(password, 10);
 
+    const checkUser = await User.findOne({ email });
+
+    if (checkUser) {
+      return res.status(400).json({
+        success: false,
+        message: "This user already exist",
+      });
+    }
+
     const newUser = await User.create({
       email,
       password: hashedPass,
@@ -113,13 +122,13 @@ export const SignupController = async (
 
     res.status(201).json({
       sucess: true,
-      message: "User Created",
+      message: "Welcome to Chat App",
     });
   } catch (error: any) {
     console.error(error.message);
     res.status(500).json({
       success: false,
-      message: "Internal server error",
+      message: "Internal server errors",
     });
   }
 };
