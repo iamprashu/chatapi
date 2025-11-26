@@ -60,34 +60,25 @@ pipeline {
       }
     }
 
-    stage('Deploy Application') {
-      steps {
-        withCredentials([
-          string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
-          string(credentialsId: 'ACCESS_TOKEN_SECRET', variable: 'ACCESS_TOKEN_SECRET'),
-          string(credentialsId: 'REFRESH_TOKEN_SECRET', variable: 'REFRESH_TOKEN_SECRET')
-        ]) {
+   stage('Deploy Application') {
+  steps {
+    sh '''
+      echo "Deploying app..."
 
-          sh """
-            echo "Deploying..."
+      docker rm -f deployed-demoapp || true
 
-            # stop old container
-            docker rm -f deployed-demoapp || true
+      docker run -d --name deployed-demoapp \
+        -p 3000:3000 \
+        -e PORT=3000 \
+        -e JWT_SECRET="$JWT_SECRET" \
+        -e ACCESS_TOKEN_SECRET="$ACCESS_TOKEN_SECRET" \
+        -e REFRESH_TOKEN_SECRET="$REFRESH_TOKEN_SECRET" \
+        -e MONGO_URL="$MONGO_URL" \
+        demoapp:${BUILD_NUMBER}
+    '''
+  }
+}
 
-            # run with env vars
-            docker run -d \
-              --name deployed-demoapp \
-              -p 3000:3000 \
-              -e PORT=$PORT \
-              -e MONGO_URL=$MONGO_URL \
-              -e JWT_SECRET=$JWT_SECRET \
-              -e ACCESS_TOKEN_SECRET=$ACCESS_TOKEN_SECRET \
-              -e REFRESH_TOKEN_SECRET=$REFRESH_TOKEN_SECRET \
-              ${IMAGE_NAME}
-          """
-        }
-      }
-    }
   }
 
   post {
