@@ -53,22 +53,31 @@ pipeline {
     }
 
     stage('OWASP ZAP scan') {
-      steps {
-        sh '''
-        # Run ZAP baseline scan against the app container by hostname (container name resolves on same network)
-        docker run --rm --network ${NETWORK} -v $(pwd):/zap/wrk/:rw owasp/zap2docker-stable \
-          zap-baseline.py -t http://${APP_CONTAINER}:${APP_PORT} -r /zap/wrk/${ZAP_REPORT} -I
-        # copy the report to workspace - it's already in workspace due to volume mount
-        '''
-      }
-      post {
-        always {
-          archiveArtifacts artifacts: "${ZAP_REPORT}", allowEmptyArchive: true
-          publishHTML([allowMissing: false, alwaysLinkToLastBuild: true, keepAll: true,
-                       reportDir: '.', reportFiles: "${ZAP_REPORT}", reportName: 'OWASP ZAP Report'])
-        }
-      }
+  steps {
+    sh '''
+    # Run ZAP baseline scan using the official zaproxy/zap-stable image
+    docker run --rm \
+      --network ${NETWORK} \
+      -v $(pwd):/zap/wrk/:rw \
+      zaproxy/zap-stable \
+      /zap/zap-baseline.py -t http://${APP_CONTAINER}:${APP_PORT} -r /zap/wrk/${ZAP_REPORT} -I
+    '''
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: "${ZAP_REPORT}", allowEmptyArchive: true
+      publishHTML([
+        allowMissing: false,
+        alwaysLinkToLastBuild: true,
+        keepAll: true,
+        reportDir: '.',
+        reportFiles: "${ZAP_REPORT}",
+        reportName: 'OWASP ZAP Report'
+      ])
     }
+  }
+}
+
 
     stage('Stop test container') {
       steps {
