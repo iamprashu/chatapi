@@ -76,10 +76,10 @@ pipeline {
           def xml = readFile("${DEP_REPORT_DIR}/${DEP_REPORT_XML}")
 
           if (xml.contains("<severity>High</severity>")) {
-            echo "❌ High severity vulnerabilities detected!"
+            echo "High severity vulnerabilities detected!"
             error("Blocking deployment due to HIGH vulnerabilities.")
           } else {
-            echo "✅ No High vulnerabilities found."
+            echo "No High vulnerabilities found."
           }
         }
       }
@@ -96,7 +96,7 @@ pipeline {
           fi
 
           # Run new container
-          docker run -d --name deployed-demoapp -p 8080:3000 ${IMAGE_NAME}
+          docker run -d --name deployed-demoapp -p 3001:3000 ${IMAGE_NAME}
         '''
       }
     }
@@ -108,10 +108,10 @@ pipeline {
       sh 'docker image prune -f || true'
     }
     success {
-      echo "� Pipeline completed successfully!"
+      echo "Pipeline completed successfully!"
     }
     failure {
-      echo "❌ Pipeline failed — check logs and Dependency-Check report."
+      echo "Pipeline failed — check logs and Dependency-Check report."
     }
   }
 
