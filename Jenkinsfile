@@ -85,20 +85,22 @@ pipeline {
     }
 
     stage('Deploy Application') {
-      steps {
-        sh '''
-          echo "Deploying app container..."
+  steps {
+    sh '''
+      echo "Deploying app..."
 
-          # Stop old container if exists
-          if docker ps -a --format "{{.Names}}" | grep -w deployed-demoapp; then
-            docker rm -f deployed-demoapp || true
-          fi
+      docker rm -f deployed-demoapp || true
 
-          # Run new container
-          docker run -d --name deployed-demoapp -p 3001:3000 ${IMAGE_NAME}
-        '''
-      }
-    }
+      docker run -d \
+        --name deployed-demoapp \
+        -p 3000:3000 \
+        -e PORT=3000 \
+        -e MONGO_URL="mongodb://localhost:27017/chatapi" \
+        demoapp:${BUILD_NUMBER}
+    '''
+  }
+}
+
 
   } 
 

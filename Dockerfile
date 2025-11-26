@@ -1,11 +1,10 @@
 FROM node:lts-alpine3.21
-
-RUN corepack enable
-RUN corepack prepare pnpm@latest --activate
-
 WORKDIR /usr/src/app
 
 COPY package*.json ./
+
+RUN npm install pnpm -g
+
 
 RUN pnpm install
 
