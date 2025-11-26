@@ -27,38 +27,61 @@ pipeline {
     }
 
     stage('OWASP Dependency-Check Scan') {
-  steps {
-    withCredentials([string(credentialsId: 'NVD_API_KEY', variable: 'NVDKEY')]) {
-      sh '''
-        mkdir -p ${DEP_REPORT_DIR}
+      steps {
+        withCredentials([string(credentialsId: 'NVD_API_KEY', variable: 'NVDKEY')]) {
+          sh '''
+            set -euo pipefail
 
-        docker run --rm \
-          -v $(pwd):/src \
-          -v $(pwd)/${DEP_REPORT_DIR}:/report \
-          owasp/dependency-check \
-          --scan /src \
-          --format ALL \
-          --nvdApiKey $NVDKEY \
-          --out /report
-      '''
-    }
-  }
-  post {
-    always {
-      archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*"
-    }
-  }
-}
+            echo "Preparing Dependency-Check directories..."
+            mkdir -p ${DEP_REPORT_DIR}
+            mkdir -p dependency-check-data
+            chmod -R 777 ${DEP_REPORT_DIR} dependency-check-data
 
+            echo "Running OWASP Dependency-Check..."
+            docker run --rm \
+              -e "DC_JAVA_OPTS=-Xmx2g" \
+              -v $(pwd):/src \
+              -v $(pwd)/${DEP_REPORT_DIR}:/report \
+              -v $(pwd)/dependency-check-data:/usr/share/dependency-check/data \
+              owasp/dependency-check \
+              --scan /src \
+              --format ALL \
+              --nvdApiKey $NVDKEY \
+              --out /report 2>&1 | tee ${DEP_REPORT_DIR}/dc.log
+
+            echo "Dependency-Check scan completed."
+            echo "Checking if XML report exists..."
+
+            if [ ! -s ${DEP_REPORT_DIR}/${DEP_REPORT_XML} ]; then
+              echo "ERROR: XML report missing or empty!"
+              echo "Last 200 log lines:"
+              tail -200 ${DEP_REPORT_DIR}/dc.log || true
+              exit 12
+            fi
+
+            echo "XML report found OK."
+          '''
+        }
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*", allowEmptyArchive: false
+        }
+      }
+    }
 
     stage('Fail on High Vulnerabilities') {
       steps {
         script {
+          echo "Scanning XML report for HIGH severity vulnerabilities..."
+
           def xml = readFile("${DEP_REPORT_DIR}/${DEP_REPORT_XML}")
+
           if (xml.contains("<severity>High</severity>")) {
-            error("High severity vulnerabilities detected — Deployment blocked")
+            echo "❌ High severity vulnerabilities detected!"
+            error("Blocking deployment due to HIGH vulnerabilities.")
           } else {
-            echo "No High vulnerabilities found"
+            echo "✅ No High vulnerabilities found."
           }
         }
       }
@@ -88,6 +111,9 @@ pipeline {
     }
     success {
       echo "� Pipeline completed successfully!"
+    }
+    failure {
+      echo "❌ Pipeline failed — check logs and Dependency-Check report."
     }
   }
 
