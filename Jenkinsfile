@@ -36,7 +36,6 @@ pipeline {
         echo "Preparing Dependency-Check directories..."
         mkdir -p ${DEP_REPORT_DIR}
         mkdir -p dependency-check-data
-        chmod -R 777 ${DEP_REPORT_DIR} dependency-check-data
 
         echo "Running OWASP Dependency-Check..."
         docker run --rm \
