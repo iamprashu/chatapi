@@ -1,122 +1,96 @@
 pipeline {
   agent any
+
   environment {
     IMAGE_NAME = "demoapp:${env.BUILD_NUMBER}"
-    NETWORK = "ci-net"
+    DEP_REPORT_DIR = "dc-report"
+    DEP_REPORT_HTML = "dependency-check-report.html"
+    DEP_REPORT_XML = "dependency-check-report.xml"
     APP_CONTAINER = "demoapp-${env.BUILD_NUMBER}"
-    ZAP_REPORT = "zap-report-${env.BUILD_NUMBER}.html"
-    APP_PORT = "3000"
   }
-  stages {
-    stage('Prepare docker network') {
-      steps {
-        sh '''
-        # create network if not exists
-        if ! docker network inspect ${NETWORK} >/dev/null 2>&1; then
-          docker network create ${NETWORK}
-        fi
-        '''
-      }
-    }
 
-    stage('Checkout') {
+  stages {
+
+    stage('Checkout Code') {
       steps {
         checkout scm
       }
     }
 
-    stage('Build image') {
+    stage('Build Docker Image') {
       steps {
         sh '''
-        docker build -t ${IMAGE_NAME} .
+          echo "Building Docker image..."
+          docker build -t ${IMAGE_NAME} .
         '''
       }
     }
 
-    stage('Run app for scanning') {
+    stage('OWASP Dependency-Check Scan') {
       steps {
         sh '''
-        # run container in background on network, internal port only
-        docker run -d --name ${APP_CONTAINER} --network ${NETWORK} ${IMAGE_NAME}
-        # wait for app to be ready (simple loop)
-        for i in $(seq 1 30); do
-          # try to reach via curl inside network via another container
-          if docker run --rm --network ${NETWORK} busybox wget -qO- http://${APP_CONTAINER}:${APP_PORT} >/dev/null 2>&1; then
-            echo "app is up"
-            break
-          fi
-          echo "waiting for app..."
-          sleep 2
-        done
+          # Create output folder for reports
+          mkdir -p ${DEP_REPORT_DIR}
+
+          # Run OWASP Dependency-Check using Docker
+          docker run --rm \
+            -v $(pwd):/src \
+            -v $(pwd)/${DEP_REPORT_DIR}:/report \
+            owasp/dependency-check \
+            --scan /src \
+            --format ALL \
+            --out /report
         '''
       }
-    }
-
-    stage('OWASP ZAP scan') {
-  steps {
-    sh '''
-    # Run ZAP baseline scan using the official zaproxy/zap-stable image
-    docker run --rm \
-      --network ${NETWORK} \
-      -v $(pwd):/zap/wrk/:rw \
-      zaproxy/zap-stable \
-      /zap/zap-baseline.py -t http://${APP_CONTAINER}:${APP_PORT} -r /zap/wrk/${ZAP_REPORT} -I
-    '''
-  }
-  post {
-    always {
-      archiveArtifacts artifacts: "${ZAP_REPORT}", allowEmptyArchive: true
-      publishHTML([
-        allowMissing: false,
-        alwaysLinkToLastBuild: true,
-        keepAll: true,
-        reportDir: '.',
-        reportFiles: "${ZAP_REPORT}",
-        reportName: 'OWASP ZAP Report'
-      ])
-    }
-  }
-}
-
-
-    stage('Stop test container') {
-      steps {
-        sh '''
-        docker rm -f ${APP_CONTAINER} || true
-        '''
-      }
-    }
-
-    stage('If clean, tag & deploy') {
-      when {
-        expression {
-          // simple check: abort if ZAP found high-risk alerts. Here we parse the HTML for "High"
-          def html = readFile "${ZAP_REPORT}"
-          // crude check, can be improved by parsing JSON report
-          return !(html.contains(">High<"))  // proceed only if no "High" in report
+      post {
+        always {
+          archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*.html", allowEmptyArchive: true
+          archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*.xml", allowEmptyArchive: true
+        }
+        failure {
+          echo "Dependency Check failed — vulnerabilities found!"
         }
       }
+    }
+
+    stage('Fail on High Vulnerabilities') {
+      steps {
+        script {
+          def xml = readFile("${DEP_REPORT_DIR}/${DEP_REPORT_XML}")
+          if (xml.contains("<severity>High</severity>")) {
+            error("High severity vulnerabilities detected — Deployment blocked")
+          } else {
+            echo "No High vulnerabilities found"
+          }
+        }
+      }
+    }
+
+    stage('Deploy Application') {
       steps {
         sh '''
-        # tag to "latest" or push to registry here if needed
-        docker tag ${IMAGE_NAME} demoapp:latest
+          echo "Deploying app container..."
 
-        # stop any existing deployed container and run new one (host network port mapping)
-        if docker ps -a --format "{{.Names}}" | grep -w deployed-demoapp >/dev/null 2>&1; then
-          docker rm -f deployed-demoapp || true
-        fi
-        docker run -d --name deployed-demoapp -p 8080:3000 ${IMAGE_NAME}
+          # Stop old container if exists
+          if docker ps -a --format "{{.Names}}" | grep -w deployed-demoapp; then
+            docker rm -f deployed-demoapp || true
+          fi
+
+          # Run new container
+          docker run -d --name deployed-demoapp -p 8080:3000 ${IMAGE_NAME}
         '''
       }
     }
-  }
+
+  } 
 
   post {
     always {
       sh 'docker image prune -f || true'
     }
-    failure {
-      echo "Pipeline failed. See logs."
+    success {
+      echo "� Pipeline completed successfully!"
     }
   }
+
 }
