@@ -3,117 +3,95 @@ pipeline {
 
   environment {
     IMAGE_NAME = "demoapp:${env.BUILD_NUMBER}"
-    DEP_REPORT_DIR = "dc-report"
-    DEP_REPORT_HTML = "dependency-check-report.html"
-    DEP_REPORT_XML = "dependency-check-report.xml"
-    APP_CONTAINER = "demoapp-${env.BUILD_NUMBER}"
+
+    // Default env
+    PORT = "3000"
+    MONGO_URL = "mongodb://localhost:27017/chatapi"
   }
 
   stages {
 
     stage('Checkout Code') {
-      steps {
-        checkout scm
-      }
+      steps { checkout scm }
     }
 
     stage('Build Docker Image') {
       steps {
-        sh '''
-          echo "Building Docker image..."
-          docker build -t ${IMAGE_NAME} .
-        '''
+        sh """
+        echo "Building image..."
+        docker build -t ${IMAGE_NAME} .
+        """
       }
     }
 
     stage('OWASP Dependency-Check Scan') {
-  steps {
-    withCredentials([string(credentialsId: 'NVD_API_KEY', variable: 'NVDKEY')]) {
-      sh '''#!/bin/bash
+      steps {
+        withCredentials([string(credentialsId: 'NVD_API_KEY', variable: 'NVDKEY')]) {
+          sh """
+            mkdir -p dc-report
 
-        set -euo pipefail
-
-        echo "Preparing Dependency-Check directories..."
-        mkdir -p ${DEP_REPORT_DIR}
-        mkdir -p dependency-check-data
-
-        echo "Running OWASP Dependency-Check..."
-        docker run --rm \
-          -e "DC_JAVA_OPTS=-Xmx2g" \
-          -v $(pwd):/src \
-          -v $(pwd)/${DEP_REPORT_DIR}:/report \
-          -v $(pwd)/dependency-check-data:/usr/share/dependency-check/data \
-          owasp/dependency-check \
-          --scan /src \
-          --format ALL \
-          --nvdApiKey $NVDKEY \
-          --out /report 2>&1 | tee ${DEP_REPORT_DIR}/dc.log
-
-        echo "Checking if XML report exists..."
-
-        if [ ! -s ${DEP_REPORT_DIR}/${DEP_REPORT_XML} ]; then
-          echo "ERROR: XML report missing or empty!"
-          tail -200 ${DEP_REPORT_DIR}/dc.log || true
-          exit 12
-        fi
-      '''
+            docker run --rm \
+              -v $(pwd):/src \
+              -v $(pwd)/dc-report:/report \
+              owasp/dependency-check \
+              --scan /src \
+              --format ALL \
+              --nvdApiKey $NVDKEY \
+              --out /report
+          """
+        }
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: 'dc-report/*'
+        }
+      }
     }
-  }
-  post {
-    always {
-      archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*", allowEmptyArchive: false
-    }
-  }
-}
-
 
     stage('Fail on High Vulnerabilities') {
       steps {
         script {
-          echo "Scanning XML report for HIGH severity vulnerabilities..."
-
-          def xml = readFile("${DEP_REPORT_DIR}/${DEP_REPORT_XML}")
-
+          echo "Scanning XML report..."
+          def xml = readFile("dc-report/dependency-check-report.xml")
           if (xml.contains("<severity>High</severity>")) {
-            echo "High severity vulnerabilities detected!"
-            error("Blocking deployment due to HIGH vulnerabilities.")
-          } else {
-            echo "No High vulnerabilities found."
+            error("High severity vulnerabilities detected — Deployment blocked")
           }
         }
       }
     }
 
     stage('Deploy Application') {
-  steps {
-    sh '''
-      echo "Deploying app..."
+      steps {
+        withCredentials([
+          string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
+          string(credentialsId: 'ACCESS_TOKEN_SECRET', variable: 'ACCESS_TOKEN_SECRET'),
+          string(credentialsId: 'REFRESH_TOKEN_SECRET', variable: 'REFRESH_TOKEN_SECRET')
+        ]) {
 
-      docker rm -f deployed-demoapp || true
+          sh """
+            echo "Deploying..."
 
-      docker run -d \
-        --name deployed-demoapp \
-        -p 3000:3000 \
-        -e PORT=3000 \
-        -e MONGO_URL="mongodb://localhost:27017/chatapi" \
-        demoapp:${BUILD_NUMBER}
-    '''
+            # stop old container
+            docker rm -f deployed-demoapp || true
+
+            # run with env vars
+            docker run -d \
+              --name deployed-demoapp \
+              -p 3000:3000 \
+              -e PORT=$PORT \
+              -e MONGO_URL=$MONGO_URL \
+              -e JWT_SECRET=$JWT_SECRET \
+              -e ACCESS_TOKEN_SECRET=$ACCESS_TOKEN_SECRET \
+              -e REFRESH_TOKEN_SECRET=$REFRESH_TOKEN_SECRET \
+              ${IMAGE_NAME}
+          """
+        }
+      }
+    }
   }
-}
-
-
-  } 
 
   post {
-    always {
-      sh 'docker image prune -f || true'
-    }
-    success {
-      echo "Pipeline completed successfully!"
-    }
-    failure {
-      echo "Pipeline failed — check logs and Dependency-Check report."
-    }
+    success { echo "Pipeline completed successfully!" }
+    always { sh 'docker image prune -f || true' }
   }
-
 }
