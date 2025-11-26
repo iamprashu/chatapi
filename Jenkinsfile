@@ -27,31 +27,29 @@ pipeline {
     }
 
     stage('OWASP Dependency-Check Scan') {
-      steps {
-        sh '''
-          # Create output folder for reports
-          mkdir -p ${DEP_REPORT_DIR}
+  steps {
+    withCredentials([string(credentialsId: 'NVD_API_KEY', variable: 'NVDKEY')]) {
+      sh '''
+        mkdir -p ${DEP_REPORT_DIR}
 
-          # Run OWASP Dependency-Check using Docker
-          docker run --rm \
-            -v $(pwd):/src \
-            -v $(pwd)/${DEP_REPORT_DIR}:/report \
-            owasp/dependency-check \
-            --scan /src \
-            --format ALL \
-            --out /report
-        '''
-      }
-      post {
-        always {
-          archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*.html", allowEmptyArchive: true
-          archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*.xml", allowEmptyArchive: true
-        }
-        failure {
-          echo "Dependency Check failed — vulnerabilities found!"
-        }
-      }
+        docker run --rm \
+          -v $(pwd):/src \
+          -v $(pwd)/${DEP_REPORT_DIR}:/report \
+          owasp/dependency-check \
+          --scan /src \
+          --format ALL \
+          --nvdApiKey $NVDKEY \
+          --out /report
+      '''
     }
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: "${DEP_REPORT_DIR}/*"
+    }
+  }
+}
+
 
     stage('Fail on High Vulnerabilities') {
       steps {
