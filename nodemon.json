@@ -1,5 +1,0 @@
-{
-  "watch": ["src"],
-  "ignore": ["node_modules"],
-  "legacyWatch": true
-}
