@@ -10,8 +10,8 @@ export async function LoginController(
   res: Response
 ): Promise<any> {
   const jwtSecret = process.env.JWT_SECRET;
-  const refreshSecret = process.env.REFRESH_TOKEN_SECRET;
-  const accessSecret = process.env.ACCESS_TOKEN_SECRET;
+  const refreshSecret = process.env.REFRESH_TOKEN_SECRET!;
+  const accessSecret = process.env.ACCESS_TOKEN_SECRET!;
   try {
     console.log(req);
     const { email, password } = req.body;
