@@ -2,7 +2,6 @@ import { Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import User from "../models/User";
-import dotenv from "dotenv";
 import Session from "../models/Session";
 
 export async function LoginController(
@@ -122,8 +121,8 @@ export const SignupController = async (
 
     res.status(201).json({
       sucess: true,
-      message: "Welcome to Chat App",
-    });
+      message: "User registered please login",
+    }).redirect('/login');
   } catch (error: any) {
     console.error(error.message);
     res.status(500).json({
